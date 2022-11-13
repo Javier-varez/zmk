@@ -4,10 +4,12 @@ manifest:
       url-base: https://github.com/zephyrproject-rtos
     - name: zmkfirmware
       url-base: https://github.com/zmkfirmware
+    - name: javier-varez
+      url-base: https://github.com/javier-varez
   projects:
     - name: zephyr
-      remote: zmkfirmware
-      revision: v3.0.0+zmk-fixes
+      remote: javier-varez
+      revision: is31fl3733_driver
       clone-depth: 1
       import:
         # TODO: Rename once upstream offers option like `exclude` or `denylist`
