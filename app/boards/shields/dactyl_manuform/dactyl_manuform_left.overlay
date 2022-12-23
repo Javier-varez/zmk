@@ -1,0 +1,17 @@
+/*
+ * Copyright (c) 2022 The ZMK Contributors
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+#include "dactyl_manuform.dtsi"
+
+&kscan0 {
+    col-gpios
+        = <&gpio0 4 GPIO_ACTIVE_HIGH>
+        , <&gpio0 3 GPIO_ACTIVE_HIGH>
+        , <&gpio0 2 GPIO_ACTIVE_HIGH>
+        , <&gpio0 1 GPIO_ACTIVE_HIGH>
+        , <&gpio0 0 GPIO_ACTIVE_HIGH>
+        ;
+};
