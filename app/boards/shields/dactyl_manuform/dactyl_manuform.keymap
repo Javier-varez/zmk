@@ -18,8 +18,8 @@
                 &kp H    &kp J      &kp K     &kp L     &kp SEMI
                 &kp N    &kp M      &kp COMMA &kp DOT   &kp FSLH
                 &kp BSPC &kp RET    &kp LBKT  &kp RBKT
-                &kp ESC &kp LCTRL
-                &kp TAB &kp LALT
+                &kp ESC  &kp LCTRL
+                &kp TAB  &kp LALT
 			>;
 		};
 
@@ -29,8 +29,8 @@
                 &kp H    &kp J      &kp K     &kp L     &kp SEMI
                 &kp N    &kp M      &kp COMMA &kp DOT   &kp FSLH
                 &kp BSPC &kp RET    &kp LBKT  &kp RBKT
-                &kp ESC &kp LCTRL
-                &kp TAB &kp LALT
+                &kp ESC  &kp LCTRL
+                &kp TAB  &kp LALT
 			>;
 		};
 	};
