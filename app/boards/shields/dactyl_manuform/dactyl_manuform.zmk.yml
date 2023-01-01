@@ -3,7 +3,7 @@ id: dactyl_manuform
 name: Dactyl Manuform
 type: shield
 url: https://github.com/tshort/dactyl-keyboard
-requires: [rpi_pico]
+requires: [rpi_pico_w]
 features:
   - keys
 siblings:
