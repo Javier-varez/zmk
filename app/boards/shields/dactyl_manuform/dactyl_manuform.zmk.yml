@@ -6,3 +6,6 @@ url: https://github.com/tshort/dactyl-keyboard
 requires: [rpi_pico]
 features:
   - keys
+siblings:
+  - dactyl_manuform_left
+  - dactyl_manuform_right
