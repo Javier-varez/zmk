@@ -1,0 +1,20 @@
+if ZMK_SPLIT_SERIAL
+
+menu "Serial Transport"
+
+config ZMK_SPLIT_SERIAL_THREAD_STACK_SIZE
+ 	int "Serial split thread stack size"
+ 	default 1024
+
+ config ZMK_SPLIT_SERIAL_THREAD_PRIORITY
+ 	int "Serial split thread priority"
+ 	default 5
+
+ config ZMK_SPLIT_SERIAL_THREAD_QUEUE_SIZE
+ 	int "Max number of queue size for split data buffering"
+ 	default 5
+
+endmenu
+
+#ZMK_SPLIT_SERIAL
+endif
