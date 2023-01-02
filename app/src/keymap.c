@@ -15,10 +15,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <drivers/behavior.h>
 #include <zmk/behavior.h>
 
-#include <zmk/ble.h>
-#if ZMK_BLE_IS_CENTRAL
-#include <zmk/split/bluetooth/central.h>
-#endif
+#include <zmk/split/split.h>
 
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
@@ -206,19 +203,19 @@ int zmk_keymap_apply_position_state(uint8_t source, int layer, uint32_t position
     case BEHAVIOR_LOCALITY_CENTRAL:
         return invoke_locally(&binding, event, pressed);
     case BEHAVIOR_LOCALITY_EVENT_SOURCE:
-#if ZMK_BLE_IS_CENTRAL
+#if ZMK_SPLIT_IS_CENTRAL
         if (source == ZMK_POSITION_STATE_CHANGE_SOURCE_LOCAL) {
             return invoke_locally(&binding, event, pressed);
         } else {
-            return zmk_split_bt_invoke_behavior(source, &binding, event, pressed);
+            return zmk_split_invoke_behavior(source, &binding, event, pressed);
         }
 #else
         return invoke_locally(&binding, event, pressed);
 #endif
     case BEHAVIOR_LOCALITY_GLOBAL:
-#if ZMK_BLE_IS_CENTRAL
-        for (int i = 0; i < ZMK_BLE_SPLIT_PERIPHERAL_COUNT; i++) {
-            zmk_split_bt_invoke_behavior(i, &binding, event, pressed);
+#if ZMK_SPLIT_IS_CENTRAL
+        for (int i = 0; i < ZMK_SPLIT_PERIPHERAL_COUNT; i++) {
+            zmk_split_invoke_behavior(i, &binding, event, pressed);
         }
 #endif
         return invoke_locally(&binding, event, pressed);
