@@ -9,8 +9,7 @@
 #include <zmk/keys.h>
 #include <zmk/ble/profile.h>
 
-#define ZMK_BLE_IS_CENTRAL                                                                         \
-    (IS_ENABLED(CONFIG_ZMK_SPLIT) && IS_ENABLED(CONFIG_ZMK_BLE) &&                                 \
+#if (IS_ENABLED(CONFIG_ZMK_SPLIT) && IS_ENABLED(CONFIG_ZMK_BLE) &&                                 \
      IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL))
 
 #if ZMK_BLE_IS_CENTRAL
@@ -36,3 +35,6 @@ int zmk_ble_unpair_all();
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
 int zmk_ble_put_peripheral_addr(const bt_addr_le_t *addr);
 #endif /* IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL) */
+
+#endif  /* (IS_ENABLED(CONFIG_ZMK_SPLIT) && IS_ENABLED(CONFIG_ZMK_BLE) &&
+            IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)) */

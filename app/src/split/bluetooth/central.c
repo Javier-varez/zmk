@@ -22,6 +22,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/ble.h>
 #include <zmk/behavior.h>
 #include <zmk/sensors.h>
+#include <zmk/split/split.h>
 #include <zmk/split/bluetooth/uuid.h>
 #include <zmk/split/bluetooth/service.h>
 #include <zmk/event_manager.h>
@@ -50,7 +51,7 @@ struct peripheral_slot {
     uint8_t changed_positions[POSITION_STATE_DATA_LEN];
 };
 
-static struct peripheral_slot peripherals[ZMK_SPLIT_BLE_PERIPHERAL_COUNT];
+static struct peripheral_slot peripherals[ZMK_SPLIT_PERIPHERAL_COUNT];
 
 static bool is_scanning = false;
 
@@ -70,7 +71,7 @@ void peripheral_event_work_callback(struct k_work *work) {
 K_WORK_DEFINE(peripheral_event_work, peripheral_event_work_callback);
 
 int peripheral_slot_index_for_conn(struct bt_conn *conn) {
-    for (int i = 0; i < ZMK_SPLIT_BLE_PERIPHERAL_COUNT; i++) {
+    for (int i = 0; i < ZMK_SPLIT_PERIPHERAL_COUNT; i++) {
         if (peripherals[i].conn == conn) {
             return i;
         }
@@ -89,7 +90,7 @@ struct peripheral_slot *peripheral_slot_for_conn(struct bt_conn *conn) {
 }
 
 int release_peripheral_slot(int index) {
-    if (index < 0 || index >= ZMK_SPLIT_BLE_PERIPHERAL_COUNT) {
+    if (index < 0 || index >= ZMK_SPLIT_PERIPHERAL_COUNT) {
         return -EINVAL;
     }
 
@@ -137,7 +138,8 @@ int release_peripheral_slot(int index) {
 
 int reserve_peripheral_slot(const bt_addr_le_t *addr) {
     int i = zmk_ble_put_peripheral_addr(addr);
-    if (i >= 0) {
+
+    for (int i = 0; i < ZMK_SPLIT_PERIPHERAL_COUNT; i++) {
         if (peripherals[i].state == PERIPHERAL_SLOT_STATE_OPEN) {
             // Be sure the slot is fully reinitialized.
             release_peripheral_slot(i);
@@ -666,8 +668,8 @@ split_bt_invoke_behavior_payload(struct zmk_split_run_behavior_payload_wrapper p
     return 0;
 };
 
-int zmk_split_bt_invoke_behavior(uint8_t source, struct zmk_behavior_binding *binding,
-                                 struct zmk_behavior_binding_event event, bool state) {
+int zmk_split_invoke_behavior(uint8_t source, struct zmk_behavior_binding *binding,
+                              struct zmk_behavior_binding_event event, bool state) {
     struct zmk_split_run_behavior_payload payload = {.data = {
                                                          .param1 = binding->param1,
                                                          .param2 = binding->param2,

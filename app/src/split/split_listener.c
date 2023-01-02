@@ -7,7 +7,7 @@
 #include <zephyr/device.h>
 #include <zephyr/logging/log.h>
 
-#include <zmk/split/bluetooth/service.h>
+#include <zmk/split/service.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
@@ -23,9 +23,9 @@ int split_listener(const zmk_event_t *eh) {
     const struct zmk_position_state_changed *pos_ev;
     if ((pos_ev = as_zmk_position_state_changed(eh)) != NULL) {
         if (pos_ev->state) {
-            return zmk_split_bt_position_pressed(pos_ev->position);
+            return zmk_split_position_pressed(pos_ev->position);
         } else {
-            return zmk_split_bt_position_released(pos_ev->position);
+            return zmk_split_position_released(pos_ev->position);
         }
     }
 
