@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <stdbool.h>
 #include <zmk/split/serial/common.h>
 #include <init.h>
 
@@ -34,8 +35,10 @@ K_SEM_DEFINE(rx_done, 0, 1);
 typedef struct uart_data {
     const uint8_t *tx_ptr;
     int tx_len;
+    atomic_t tx_in_progress;
     uint8_t *rx_ptr;
     int rx_len;
+    atomic_t rx_in_progress;
 } uart_data_t;
 
 static uart_data_t uart_data = {};
@@ -46,37 +49,43 @@ static void uart_irq_callback_user_data(const struct device *const dev, void *co
         return;
     }
 
-    while (uart_irq_tx_ready(dev) && (data->tx_len > 0)) {
-        const int nbytes = uart_fifo_fill(dev, &data->tx_ptr[0], data->tx_len);
-        if (nbytes < 0) {
-            LOG_ERR("Error filling tx fifo from irq! %d", nbytes);
-            return;
+    if (atomic_get(&data->tx_in_progress) != 0) {
+        while ((data->tx_len > 0) && uart_irq_tx_ready(dev)) {
+            const int nbytes = uart_fifo_fill(dev, &data->tx_ptr[0], data->tx_len);
+            if (nbytes < 0) {
+                LOG_ERR("Error filling tx fifo from irq! %d", nbytes);
+                return;
+            }
+
+            data->tx_ptr += nbytes;
+            data->tx_len -= nbytes;
         }
 
-        data->tx_ptr += nbytes;
-        data->tx_len -= nbytes;
+        if (uart_irq_tx_complete(dev) && (data->tx_len == 0)) {
+            atomic_set(&data->tx_in_progress, 0);
+            uart_irq_tx_disable(dev);
+            k_sem_give(&tx_done);
+        }
     }
 
-    if (uart_irq_tx_complete(dev) && (data->tx_len == 0)) {
-        uart_irq_tx_disable(dev);
-        k_sem_give(&tx_done);
-    }
+    if (atomic_get(&data->rx_in_progress) != 0) {
+        const bool rx_was_not_zero = data->rx_len > 0;
+        while ((data->rx_len > 0) && uart_irq_rx_ready(dev)) {
+            const int nbytes = uart_fifo_read(dev, &data->rx_ptr[0], data->rx_len);
+            if (nbytes < 0) {
+                LOG_ERR("Error reading from rx fifo in irq! %d", nbytes);
+                return;
+            }
 
-    bool rx_was_not_zero = data->rx_len > 0;
-    while (uart_irq_rx_ready(dev) && (data->rx_len > 0)) {
-        const int nbytes = uart_fifo_read(dev, &data->rx_ptr[0], data->rx_len);
-        if (nbytes < 0) {
-            LOG_ERR("Error reading from rx fifo in irq! %d", nbytes);
-            return;
+            data->rx_ptr += nbytes;
+            data->rx_len -= nbytes;
         }
 
-        data->rx_ptr += nbytes;
-        data->rx_len -= nbytes;
-    }
-
-    if (rx_was_not_zero && (data->rx_len == 0)) {
-        uart_irq_rx_disable(dev);
-        k_sem_give(&rx_done);
+        if (rx_was_not_zero && (data->rx_len == 0)) {
+            uart_irq_rx_disable(dev);
+            atomic_set(&data->rx_in_progress, 0);
+            k_sem_give(&rx_done);
+        }
     }
 }
 
@@ -88,6 +97,7 @@ void split_serial_sync_send(const uint8_t *const data, const size_t len) {
 
     uart_data.tx_ptr = data;
     uart_data.tx_len = len;
+    atomic_set(&uart_data.tx_in_progress, 1);
     uart_irq_tx_enable(serial_dev);
 
     k_sem_take(&tx_done, K_FOREVER);
@@ -101,6 +111,7 @@ void split_serial_sync_recv(uint8_t *const data, const size_t len) {
 
     uart_data.rx_ptr = data;
     uart_data.rx_len = len;
+    atomic_set(&uart_data.rx_in_progress, 1);
 
     uart_irq_rx_enable(serial_dev);
     k_sem_take(&rx_done, K_FOREVER);

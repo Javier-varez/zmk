@@ -15,9 +15,11 @@
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
+#include <zmk/behavior.h>
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
 #include <zmk/matrix.h>
+#include <zmk/stdlib.h>
 
 K_MSGQ_DEFINE(notify_event_msgq, sizeof(split_data_t), CONFIG_ZMK_SPLIT_SERIAL_THREAD_QUEUE_SIZE,
               8);
@@ -69,8 +71,8 @@ static void split_central_notify_func(struct k_work *work) {
 
 K_WORK_DEFINE(notify_work, split_central_notify_func);
 
-static int split_serial_thread() {
-    split_serial_sync_init(split_central_notify_func);
+static int split_serial_rx_thread() {
+    split_serial_sync_init();
     k_work_queue_start(&notify_work_q, notify_q_stack, K_THREAD_STACK_SIZEOF(notify_q_stack),
                        CONFIG_ZMK_SPLIT_SERIAL_THREAD_PRIORITY, NULL);
 
@@ -81,7 +83,36 @@ static int split_serial_thread() {
         k_msgq_put(&notify_event_msgq, &data, K_NO_WAIT);
         k_work_submit_to_queue(&notify_work_q, &notify_work);
     }
+
+    return 0;
 }
 
-K_THREAD_DEFINE(split_central, CONFIG_ZMK_SPLIT_SERIAL_THREAD_STACK_SIZE, split_serial_thread, 0, 0,
-                0, /*CONFIG_ZMK_SPLIT_SERIAL_THREAD_PRIORITY*/ 0, 0, 0);
+K_THREAD_DEFINE(split_central, CONFIG_ZMK_SPLIT_SERIAL_THREAD_STACK_SIZE, split_serial_rx_thread, 0,
+                0, 0, /*CONFIG_ZMK_SPLIT_SERIAL_THREAD_PRIORITY*/ 0, 0, 0);
+
+int zmk_split_invoke_behavior(uint8_t source, struct zmk_behavior_binding *binding,
+                              struct zmk_behavior_binding_event event, bool state) {
+    struct zmk_split_run_behavior_payload payload = {
+        .data =
+            {
+                .param1 = binding->param1,
+                .param2 = binding->param2,
+                .position = event.position,
+                .state = state ? 1 : 0,
+            },
+    };
+
+    const size_t payload_dev_size = sizeof(payload.behavior_dev);
+
+    if (strlcpy(payload.behavior_dev, binding->behavior_dev, payload_dev_size) >=
+        payload_dev_size) {
+        LOG_ERR("Truncated behavior label %s to %s before invoking peripheral behavior",
+                log_strdup(binding->behavior_dev), log_strdup(payload.behavior_dev));
+    }
+
+    LOG_DBG("Sending behavior to dev \"%s\" event pos %d, state %d, param1 %d, param2 %d",
+            payload.behavior_dev, payload.data.position, payload.data.state, payload.data.param1,
+            payload.data.param2);
+    split_serial_sync_send((const uint8_t *)&payload, sizeof(payload));
+    return 0;
+}
