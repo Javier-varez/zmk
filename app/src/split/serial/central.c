@@ -19,36 +19,30 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/events/position_state_changed.h>
 #include <zmk/matrix.h>
 
-K_MSGQ_DEFINE(peripheral_event_msgq, sizeof(struct zmk_position_state_changed),
-              CONFIG_ZMK_SPLIT_SERIAL_THREAD_QUEUE_SIZE, 4);
+K_MSGQ_DEFINE(notify_event_msgq, sizeof(split_data_t), CONFIG_ZMK_SPLIT_SERIAL_THREAD_QUEUE_SIZE,
+              8);
+K_THREAD_STACK_DEFINE(notify_q_stack, CONFIG_ZMK_SPLIT_SERIAL_THREAD_STACK_SIZE);
+struct k_work_q notify_work_q;
 
-static void peripheral_event_work_callback(struct k_work *work) {
-    struct zmk_position_state_changed ev;
-    while (k_msgq_get(&peripheral_event_msgq, &ev, K_NO_WAIT) == 0) {
-        LOG_DBG("Trigger key position state change for %d", ev.position);
-        ZMK_EVENT_RAISE(new_zmk_position_state_changed(ev));
-    }
-}
+static void split_central_notify_func(struct k_work *work) {
+    split_data_t split_data = {};
+    k_msgq_get(&notify_event_msgq, &split_data, K_FOREVER);
 
-K_WORK_DEFINE(peripheral_event_work, peripheral_event_work_callback);
-
-static int split_central_notify_func(const split_data_t *split_data) {
     static uint8_t position_state[SPLIT_DATA_LEN];
     uint8_t changed_positions[SPLIT_DATA_LEN];
     uint16_t crc;
 
-    LOG_ERR("[NOTIFICATION] data %p type:%u CRC:%u", &split_data[0], split_data->type,
-            split_data->crc);
+    LOG_INF("[NOTIFICATION] type:%u CRC:%u", split_data.type, split_data.crc);
 
-    crc = crc16_ansi(split_data->data, sizeof(split_data->data));
-    if (crc != split_data->crc) {
-        LOG_WRN("CRC mismatch (%x:%x), skipping data", crc, split_data->crc);
-        return 0;
+    crc = crc16_ansi(split_data.data, sizeof(split_data.data));
+    if (crc != split_data.crc) {
+        LOG_WRN("CRC mismatch (%x:%x), skipping data", crc, split_data.crc);
+        return;
     }
 
     for (int i = 0; i < SPLIT_DATA_LEN; i++) {
-        changed_positions[i] = split_data->data[i] ^ position_state[i];
-        position_state[i] = split_data->data[i];
+        changed_positions[i] = split_data.data[i] ^ position_state[i];
+        position_state[i] = split_data.data[i];
     }
 
     for (int i = 0; i < SPLIT_DATA_LEN; i++) {
@@ -64,25 +58,30 @@ static int split_central_notify_func(const split_data_t *split_data) {
                     continue;
                 }
 
-                k_msgq_put(&peripheral_event_msgq, &ev, K_NO_WAIT);
-                k_work_submit(&peripheral_event_work);
+                LOG_DBG("Trigger key position state change for %d", ev.position);
+                ZMK_EVENT_RAISE(new_zmk_position_state_changed(ev));
             }
         }
     }
 
-    return 0;
+    return;
 }
+
+K_WORK_DEFINE(notify_work, split_central_notify_func);
 
 static int split_serial_thread() {
     split_serial_sync_init(split_central_notify_func);
+    k_work_queue_start(&notify_work_q, notify_q_stack, K_THREAD_STACK_SIZEOF(notify_q_stack),
+                       CONFIG_ZMK_SPLIT_SERIAL_THREAD_PRIORITY, NULL);
 
     while (true) {
         split_data_t data;
         split_serial_sync_recv((uint8_t *)&data, sizeof(data));
 
-        split_central_notify_func(&data);
+        k_msgq_put(&notify_event_msgq, &data, K_NO_WAIT);
+        k_work_submit_to_queue(&notify_work_q, &notify_work);
     }
 }
 
 K_THREAD_DEFINE(split_central, CONFIG_ZMK_SPLIT_SERIAL_THREAD_STACK_SIZE, split_serial_thread, 0, 0,
-                0, CONFIG_ZMK_SPLIT_SERIAL_THREAD_PRIORITY, 0, 0);
+                0, /*CONFIG_ZMK_SPLIT_SERIAL_THREAD_PRIORITY*/ 0, 0, 0);
