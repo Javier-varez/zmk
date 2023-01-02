@@ -17,20 +17,41 @@
                 &kp A     &kp S     &lt 1 D   &kp F          &kp G          &kp H        &kp J      &kp K     &kp L     &kp SEMI
                 &kp Z     &kp X     &kp C     &kp V          &kp B          &kp N        &kp M      &kp COMMA &kp DOT   &kp FSLH
                           &kp MINUS &kp EQUAL &kp LSHFT      &kp SPACE      &kp BSPC     &kp RET    &kp LBKT  &kp RBKT
-                                              &kp PIPE       &kp STAR       &kp ESC      &kp LCTRL
-                                              &kp N1         &bootloader    &bootloader  &kp LALT
+                                              &mo 2          &kp LGUI       &lt 3 ESC    &kp TAB
+                                              &kp LCTRL      &kp LALT       &kp CAPSLOCK &kp GRAVE
 			>;
 		};
 
-		layer_one {
-            /* TBD */
+		movement_layer {
 			bindings = <
-                &trans    &trans    &trans    &trans         &trans         &trans   &trans     &trans    &trans    &trans
-                &trans    &trans    &trans    &trans         &trans         &trans   &trans     &trans    &trans    &trans
-                &trans    &trans    &trans    &trans         &trans         &trans   &trans     &trans    &trans    &trans
-                          &trans    &trans    &trans         &trans         &trans   &trans     &trans    &trans
-                                              &trans         &trans         &trans   &trans
-                                              &trans         &trans         &trans   &trans
+                &trans    &trans    &trans    &trans         &trans         &trans       &kp PG_UP  &trans    &trans    &trans
+                &trans    &trans    &trans    &trans         &trans         &kp LEFT     &kp DOWN   &kp UP    &kp RIGHT &trans
+                &trans    &trans    &trans    &trans         &trans         &trans       &kp PG_DN  &trans    &trans    &trans
+                          &trans    &trans    &trans         &trans         &trans       &trans     &trans    &trans
+                                              &trans         &trans         &trans       &trans
+                                              &trans         &bootloader    &bootloader  &trans
+			>;
+		};
+
+		numeric_layer {
+			bindings = <
+                &trans    &trans    &trans    &trans         &trans         &trans       &kp N7     &kp N8    &kp N9    &kp PIPE
+                &trans    &trans    &trans    &trans         &trans         &trans       &kp N4     &kp N5    &kp N6    &kp BSLH
+                &trans    &trans    &trans    &trans         &trans         &trans       &kp N1     &kp N2    &kp N3    &trans
+                          &trans    &trans    &trans         &trans         &trans       &trans     &kp N0    &trans
+                                              &trans         &trans         &trans       &trans
+                                              &trans         &trans         &trans       &trans
+			>;
+		};
+
+		symbol_layer {
+			bindings = <
+                &kp EXCL  &kp AT    &kp HASH  &kp DLLR       &kp PRCNT      &kp AMPS     &kp STAR   &kp LPAR  &kp RPAR  &kp APOS
+                &trans    &trans    &trans    &trans         &trans         &trans       &trans     &trans    &trans    &kp DQT
+                &trans    &trans    &trans    &trans         &trans         &trans       &trans     &trans    &trans    &trans
+                          &trans    &trans    &trans         &trans         &trans       &trans     &trans    &trans
+                                              &trans         &trans         &trans       &trans
+                                              &trans         &trans         &trans       &trans
 			>;
 		};
 	};
