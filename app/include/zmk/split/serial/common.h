@@ -9,17 +9,9 @@
 #include <zephyr/types.h>
 #include <init.h>
 
-/* Caller does/should not need to free `data`
- * Data will be freed immediately after calling this callback */
-typedef int (*rx_complete_t)(const uint8_t *data, size_t length);
-
-void split_serial_async_init(rx_complete_t complete_fn);
-
-void split_serial_async_send(uint8_t *data, size_t length);
-
-uint8_t *alloc_split_serial_buffer(k_timeout_t timeout);
-
-void free_split_serial_buffer(const uint8_t *data);
+void split_serial_sync_init();
+void split_serial_sync_send(const uint8_t *const data, const size_t length);
+void split_serial_sync_recv(uint8_t *const data, const size_t length);
 
 #define SPLIT_DATA_LEN 16
 
@@ -32,5 +24,4 @@ typedef struct _split_data_t {
 } split_data_t;
 
 int zmk_split_position_pressed(uint8_t position);
-
 int zmk_split_position_released(uint8_t position);

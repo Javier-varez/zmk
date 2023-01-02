@@ -20,133 +20,100 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/matrix.h>
 
 #if !DT_HAS_CHOSEN(zmk_split_serial)
-#error "No zmk-split-serial node is chosen"
+#error "No zmk,split-serial node is chosen"
 #endif
 
 #define UART_NODE1 DT_CHOSEN(zmk_split_serial)
-const struct device *serial_dev = DEVICE_DT_GET(UART_NODE1);
+
+const struct device *const serial_dev = DEVICE_DT_GET(UART_NODE1);
 static int uart_ready = 0;
 
-K_MEM_SLAB_DEFINE(split_memory_slab, sizeof(split_data_t),
-                  CONFIG_ZMK_SPLIT_SERIAL_THREAD_QUEUE_SIZE, 4);
+K_SEM_DEFINE(tx_done, 0, 1);
+K_SEM_DEFINE(rx_done, 0, 1);
 
-static K_SEM_DEFINE(split_serial_rx_sem, 1, 1);
+typedef struct uart_data {
+    const uint8_t *tx_ptr;
+    int tx_len;
+    uint8_t *rx_ptr;
+    int rx_len;
+} uart_data_t;
 
-static K_SEM_DEFINE(split_serial_tx_sem, 1, 1);
+static uart_data_t uart_data = {};
 
-rx_complete_t split_serial_rx_complete_fn = NULL;
-
-uint8_t *alloc_split_serial_buffer(k_timeout_t timeout) {
-    uint8_t *block_ptr = NULL;
-    if (k_mem_slab_alloc(&split_memory_slab, (void **)&block_ptr, timeout) == 0) {
-        memset(block_ptr, 0, SPLIT_DATA_LEN);
-    } else {
-        LOG_WRN("Memory allocation time-out");
-    }
-    return block_ptr;
-}
-
-void free_split_serial_buffer(const uint8_t *data) {
-    k_mem_slab_free(&split_memory_slab, (void **)&data);
-}
-
-static void enable_rx(const struct device *dev) {
-    int ret;
-    uint8_t *buf = NULL;
-    while (!(buf = alloc_split_serial_buffer(K_MSEC(100)))) {
-    };
-
-    while (0 != (ret = uart_rx_enable(serial_dev, buf, sizeof(split_data_t), SYS_FOREVER_MS))) {
-        LOG_WRN("UART device:%s RX error:%d", serial_dev->name, ret);
-        k_sleep(K_MSEC(100));
-    }
-    return;
-}
-
-static void uart_callback(const struct device *dev, struct uart_event *evt, void *user_data) {
-    uint8_t *buf = NULL;
-
-    switch (evt->type) {
-
-    case UART_RX_STOPPED:
-        LOG_DBG("UART device:%s rx stopped", serial_dev->name);
-        break;
-
-    case UART_RX_BUF_REQUEST:
-        LOG_DBG("UART device:%s rx extra buf req", serial_dev->name);
-        buf = alloc_split_serial_buffer(K_NO_WAIT);
-        if (NULL != buf) {
-            int ret = uart_rx_buf_rsp(serial_dev, buf, sizeof(split_data_t));
-            if (0 != ret) {
-                LOG_WRN("UART device:%s rx extra buf req add failed: %d", serial_dev->name, ret);
-                free_split_serial_buffer(buf);
-            }
-        }
-        break;
-
-    case UART_RX_RDY:
-        LOG_DBG("UART device:%s rx buf ready", serial_dev->name);
-        break;
-
-    case UART_RX_BUF_RELEASED:
-        LOG_DBG("UART device:%s rx buf released", serial_dev->name);
-        if (split_serial_rx_complete_fn) {
-            split_serial_rx_complete_fn(evt->data.rx_buf.buf, sizeof(split_data_t));
-        }
-        free_split_serial_buffer(evt->data.rx_buf.buf);
-        break;
-
-    case UART_RX_DISABLED:
-        LOG_WRN("UART device:%s rx disabled", serial_dev->name);
-        enable_rx(serial_dev);
-        break;
-
-    case UART_TX_DONE:
-        LOG_DBG("UART device:%s tx done", serial_dev->name);
-        free_split_serial_buffer(evt->data.tx.buf);
-        k_sem_give(&split_serial_tx_sem);
-        break;
-
-    case UART_TX_ABORTED:
-        LOG_WRN("UART device:%s tx aborted", serial_dev->name);
-        k_sem_give(&split_serial_tx_sem);
-        break;
-
-    default:
-        LOG_DBG("UART device:%s unhandled event: %u", serial_dev->name, evt->type);
-        break;
-    };
-    return;
-}
-
-void split_serial_async_send(uint8_t *data, size_t len) {
-    if (!uart_ready) {
+static void uart_irq_callback_user_data(const struct device *const dev, void *const user_data) {
+    uart_data_t *const data = (uart_data_t *)user_data;
+    if (!uart_irq_update(dev)) {
         return;
     }
 
-    k_sem_take(&split_serial_tx_sem, K_FOREVER);
-    int err = uart_tx(serial_dev, data, len, 0);
-    if (0 != err) {
-        LOG_WRN("Failed to send data via UART: (%d)", err);
+    while (uart_irq_tx_ready(dev) && (data->tx_len > 0)) {
+        const int nbytes = uart_fifo_fill(dev, &data->tx_ptr[0], data->tx_len);
+        if (nbytes < 0) {
+            LOG_ERR("Error filling tx fifo from irq! %d", nbytes);
+            return;
+        }
+
+        data->tx_ptr += nbytes;
+        data->tx_len -= nbytes;
+    }
+
+    if (uart_irq_tx_complete(dev) && (data->tx_len == 0)) {
+        uart_irq_tx_disable(dev);
+        k_sem_give(&tx_done);
+    }
+
+    bool rx_was_not_zero = data->rx_len > 0;
+    while (uart_irq_rx_ready(dev) && (data->rx_len > 0)) {
+        const int nbytes = uart_fifo_read(dev, &data->rx_ptr[0], data->rx_len);
+        if (nbytes < 0) {
+            LOG_ERR("Error reading from rx fifo in irq! %d", nbytes);
+            return;
+        }
+
+        data->rx_ptr += nbytes;
+        data->rx_len -= nbytes;
+    }
+
+    if (rx_was_not_zero && (data->rx_len == 0)) {
+        uart_irq_rx_disable(dev);
+        k_sem_give(&rx_done);
     }
 }
 
-void split_serial_async_init(rx_complete_t rx_comp_fn) {
+void split_serial_sync_send(const uint8_t *const data, const size_t len) {
+    if (!uart_ready) {
+        LOG_WRN("Unable to send data! Uart not ready");
+        return;
+    }
+
+    uart_data.tx_ptr = data;
+    uart_data.tx_len = len;
+    uart_irq_tx_enable(serial_dev);
+
+    k_sem_take(&tx_done, K_FOREVER);
+}
+
+void split_serial_sync_recv(uint8_t *const data, const size_t len) {
+    if (!uart_ready) {
+        LOG_WRN("Unable to recv data! Uart not ready");
+        return;
+    }
+
+    uart_data.rx_ptr = data;
+    uart_data.rx_len = len;
+
+    uart_irq_rx_enable(serial_dev);
+    k_sem_take(&rx_done, K_FOREVER);
+}
+
+void split_serial_sync_init() {
     if (!device_is_ready(serial_dev)) {
         LOG_ERR("UART device:%s not ready", serial_dev->name);
         return;
     }
 
-    int ret = uart_callback_set(serial_dev, uart_callback, NULL);
-    if (ret == -ENOTSUP || ret == -ENOSYS) {
-        LOG_ERR("UART device:%s ASYNC not supported", serial_dev->name);
-        return;
-    }
-
-    split_serial_rx_complete_fn = rx_comp_fn;
+    uart_irq_callback_user_data_set(serial_dev, uart_irq_callback_user_data, &uart_data);
 
     uart_ready = 1;
     LOG_INF("UART device:%s ready", serial_dev->name);
-
-    enable_rx(serial_dev);
 }

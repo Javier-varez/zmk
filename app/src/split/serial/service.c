@@ -28,17 +28,14 @@ K_MSGQ_DEFINE(position_state_msgq, sizeof(char[SPLIT_DATA_LEN]),
               CONFIG_ZMK_SPLIT_SERIAL_THREAD_QUEUE_SIZE, 4);
 
 static void send_position_state_callback(struct k_work *work) {
-    split_data_t *split_data = NULL;
+    split_data_t split_data;
 
-    while (!(split_data = (split_data_t *)alloc_split_serial_buffer(K_MSEC(100)))) {
-    };
+    memset(&split_data, 0, sizeof(split_data_t));
+    split_data.type = SPLIT_TYPE_KEYPOSITION;
 
-    memset(split_data, sizeof(split_data_t), 0);
-    split_data->type = SPLIT_TYPE_KEYPOSITION;
-
-    while (k_msgq_get(&position_state_msgq, split_data->data, K_NO_WAIT) == 0) {
-        split_data->crc = crc16_ansi(split_data->data, sizeof(split_data->data));
-        split_serial_async_send((uint8_t *)split_data, sizeof(*split_data));
+    while (k_msgq_get(&position_state_msgq, split_data.data, K_NO_WAIT) == 0) {
+        split_data.crc = crc16_ansi(split_data.data, sizeof(split_data.data));
+        split_serial_sync_send((uint8_t *)&split_data, sizeof(split_data));
     }
 };
 
@@ -75,11 +72,10 @@ int zmk_split_position_released(uint8_t position) {
 }
 
 static int split_serial_service_init(const struct device *dev) {
-    split_serial_async_init(NULL);
-    k_work_q_start(&service_work_q, service_q_stack, K_THREAD_STACK_SIZEOF(service_q_stack),
-                   CONFIG_ZMK_SPLIT_SERIAL_THREAD_PRIORITY);
-
+    split_serial_sync_init(NULL);
+    k_work_queue_start(&service_work_q, service_q_stack, K_THREAD_STACK_SIZEOF(service_q_stack),
+                       CONFIG_ZMK_SPLIT_SERIAL_THREAD_PRIORITY, NULL);
     return 0;
 }
 
-SYS_INIT(split_serial_service_init, APPLICATION, CONFIG_ZMK_USB_INIT_PRIORITY);
+SYS_INIT(split_serial_service_init, APPLICATION, 90);

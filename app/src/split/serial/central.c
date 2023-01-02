@@ -32,13 +32,13 @@ static void peripheral_event_work_callback(struct k_work *work) {
 
 K_WORK_DEFINE(peripheral_event_work, peripheral_event_work_callback);
 
-static int split_central_notify_func(const uint8_t *data, size_t length) {
+static int split_central_notify_func(const split_data_t *split_data) {
     static uint8_t position_state[SPLIT_DATA_LEN];
     uint8_t changed_positions[SPLIT_DATA_LEN];
-    const split_data_t *split_data = (const split_data_t *)data;
     uint16_t crc;
 
-    LOG_DBG("[NOTIFICATION] data %p type:%u CRC:%u", data, split_data->type, split_data->crc);
+    LOG_ERR("[NOTIFICATION] data %p type:%u CRC:%u", &split_data[0], split_data->type,
+            split_data->crc);
 
     crc = crc16_ansi(split_data->data, sizeof(split_data->data));
     if (crc != split_data->crc) {
@@ -73,9 +73,16 @@ static int split_central_notify_func(const uint8_t *data, size_t length) {
     return 0;
 }
 
-static int split_serial_central_init(const struct device *dev) {
-    split_serial_async_init(split_central_notify_func);
-    return 0;
+static int split_serial_thread() {
+    split_serial_sync_init(split_central_notify_func);
+
+    while (true) {
+        split_data_t data;
+        split_serial_sync_recv((uint8_t *)&data, sizeof(data));
+
+        split_central_notify_func(&data);
+    }
 }
 
-SYS_INIT(split_serial_central_init, APPLICATION, CONFIG_ZMK_USB_INIT_PRIORITY);
+K_THREAD_DEFINE(split_central, CONFIG_ZMK_SPLIT_SERIAL_THREAD_STACK_SIZE, split_serial_thread, 0, 0,
+                0, CONFIG_ZMK_SPLIT_SERIAL_THREAD_PRIORITY, 0, 0);

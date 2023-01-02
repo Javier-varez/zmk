@@ -22,7 +22,7 @@ config ZMK_SPLIT_SERIAL
 	bool "Serial"
 	select ZMK_USB
 	select SERIAL
-	select UART_ASYNC_API
+	select UART_INTERRUPT_DRIVEN
 
 endchoice
 
