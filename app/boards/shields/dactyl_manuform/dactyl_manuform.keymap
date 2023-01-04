@@ -24,10 +24,10 @@
 
 		movement_layer {
 			bindings = <
-                &trans    &trans    &trans    &trans         &trans         &trans       &kp PG_UP  &trans    &trans    &trans
-                &trans    &trans    &trans    &trans         &trans         &kp LEFT     &kp DOWN   &kp UP    &kp RIGHT &trans
-                &trans    &trans    &trans    &trans         &trans         &trans       &kp PG_DN  &trans    &trans    &trans
-                          &trans    &trans    &trans         &trans         &trans       &trans     &trans    &trans
+                &trans    &trans    &trans    &trans         &trans         &trans       &kp PG_UP  &kp C_VOL_DN &kp C_VOL_UP &kp C_MUTE
+                &trans    &trans    &trans    &trans         &trans         &kp LEFT     &kp DOWN   &kp UP       &kp RIGHT    &trans
+                &trans    &trans    &trans    &trans         &trans         &trans       &kp PG_DN  &trans       &trans       &trans
+                          &trans    &trans    &trans         &trans         &trans       &trans     &trans       &trans
                                               &trans         &trans         &trans       &trans
                                               &trans         &bootloader    &bootloader  &trans
 			>;
