@@ -21,33 +21,38 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/matrix.h>
 #include <zmk/stdlib.h>
 
-K_MSGQ_DEFINE(notify_event_msgq, sizeof(split_data_t), CONFIG_ZMK_SPLIT_SERIAL_THREAD_QUEUE_SIZE,
-              8);
+K_MSGQ_DEFINE(notify_event_msgq, sizeof(struct zmk_position_state_msg),
+              CONFIG_ZMK_SPLIT_SERIAL_THREAD_QUEUE_SIZE, 4);
 K_THREAD_STACK_DEFINE(notify_q_stack, CONFIG_ZMK_SPLIT_SERIAL_THREAD_STACK_SIZE);
 struct k_work_q notify_work_q;
 
 static void split_central_notify_func(struct k_work *work) {
-    split_data_t split_data = {};
+    struct zmk_inter_kb_msg split_data = {};
     k_msgq_get(&notify_event_msgq, &split_data, K_FOREVER);
 
-    static uint8_t position_state[SPLIT_DATA_LEN];
-    uint8_t changed_positions[SPLIT_DATA_LEN];
+    static uint8_t position_state[ZMK_MAX_BITMAP_LEN];
+    uint8_t changed_positions[ZMK_MAX_BITMAP_LEN];
     uint16_t crc;
 
     LOG_INF("[NOTIFICATION] type:%u CRC:%u", split_data.type, split_data.crc);
-
-    crc = crc16_ansi(split_data.data, sizeof(split_data.data));
-    if (crc != split_data.crc) {
-        LOG_WRN("CRC mismatch (%x:%x), skipping data", crc, split_data.crc);
+    if (split_data.type != ZmkKbMsgTypePositionState) {
         return;
     }
 
-    for (int i = 0; i < SPLIT_DATA_LEN; i++) {
-        changed_positions[i] = split_data.data[i] ^ position_state[i];
-        position_state[i] = split_data.data[i];
+    crc = crc16_ansi((uint8_t *)&split_data.position_state_msg,
+                     sizeof(split_data.position_state_msg));
+    if (crc != split_data.crc) {
+        LOG_WRN("CRC mismatch (%x:%x)", crc, split_data.crc);
+        /* LOG_WRN("CRC mismatch (%x:%x), skipping data", crc, split_data.crc); */
+        /* return; */
     }
 
-    for (int i = 0; i < SPLIT_DATA_LEN; i++) {
+    for (int i = 0; i < ZMK_MAX_BITMAP_LEN; i++) {
+        changed_positions[i] = split_data.position_state_msg.bitmap[i] ^ position_state[i];
+        position_state[i] = split_data.position_state_msg.bitmap[i];
+    }
+
+    for (int i = 0; i < ZMK_MAX_BITMAP_LEN; i++) {
         for (int j = 0; j < 8; j++) {
             if (changed_positions[i] & BIT(j)) {
                 uint32_t position = (i * 8) + j;
@@ -60,7 +65,7 @@ static void split_central_notify_func(struct k_work *work) {
                     continue;
                 }
 
-                LOG_DBG("Trigger key position state change for %d", ev.position);
+                LOG_INF("Trigger key position state change for %d", ev.position);
                 ZMK_EVENT_RAISE(new_zmk_position_state_changed(ev));
             }
         }
@@ -71,48 +76,61 @@ static void split_central_notify_func(struct k_work *work) {
 
 K_WORK_DEFINE(notify_work, split_central_notify_func);
 
-static int split_serial_rx_thread() {
-    split_serial_sync_init();
-    k_work_queue_start(&notify_work_q, notify_q_stack, K_THREAD_STACK_SIZEOF(notify_q_stack),
-                       CONFIG_ZMK_SPLIT_SERIAL_THREAD_PRIORITY, NULL);
+// This runs on ISR context
+static void split_serial_rx_callback(const uint8_t *const data, const int len) {
+    const struct zmk_inter_kb_msg *const inter_kb_data = (const struct zmk_inter_kb_msg *)data;
 
-    while (true) {
-        split_data_t data;
-        split_serial_sync_recv((uint8_t *)&data, sizeof(data));
-
-        k_msgq_put(&notify_event_msgq, &data, K_NO_WAIT);
-        k_work_submit_to_queue(&notify_work_q, &notify_work);
+    if (len > sizeof(struct zmk_inter_kb_msg)) {
+        LOG_ERR("Exceeded maximum size for serial split message: %d", len);
+        return;
     }
 
-    return 0;
+    int retval = 0;
+    if ((retval = k_msgq_put(&notify_event_msgq, inter_kb_data, K_NO_WAIT)) < 0) {
+        LOG_ERR("Unable to queue serial split message: %d", retval);
+        return;
+    }
+
+    if ((retval = k_work_submit_to_queue(&notify_work_q, &notify_work)) < 0) {
+        LOG_ERR("Unable to submit split serial work item: %d", retval);
+        return;
+    }
 }
 
-K_THREAD_DEFINE(split_central, CONFIG_ZMK_SPLIT_SERIAL_THREAD_STACK_SIZE, split_serial_rx_thread, 0,
-                0, 0, /*CONFIG_ZMK_SPLIT_SERIAL_THREAD_PRIORITY*/ 0, 0, 0);
+static int split_serial_init() {
+    zmk_split_serial_sync_init(split_serial_rx_callback);
+    k_work_queue_start(&notify_work_q, notify_q_stack, K_THREAD_STACK_SIZEOF(notify_q_stack),
+                       CONFIG_ZMK_SPLIT_SERIAL_THREAD_PRIORITY, NULL);
+    return 0;
+}
 
 int zmk_split_invoke_behavior(uint8_t source, struct zmk_behavior_binding *binding,
                               struct zmk_behavior_binding_event event, bool state) {
-    struct zmk_split_run_behavior_payload payload = {
-        .data =
+    struct zmk_inter_kb_msg payload = {
+        .type = ZmkKbMsgTypeBehavior,
+        .crc = 0,
+        .behavior_msg =
             {
-                .param1 = binding->param1,
-                .param2 = binding->param2,
                 .position = event.position,
                 .state = state ? 1 : 0,
+                .param1 = binding->param1,
+                .param2 = binding->param2,
             },
     };
 
-    const size_t payload_dev_size = sizeof(payload.behavior_dev);
+    const size_t payload_dev_size = sizeof(payload.behavior_msg.behavior_dev);
 
-    if (strlcpy(payload.behavior_dev, binding->behavior_dev, payload_dev_size) >=
+    if (strlcpy(payload.behavior_msg.behavior_dev, binding->behavior_dev, payload_dev_size) >=
         payload_dev_size) {
         LOG_ERR("Truncated behavior label %s to %s before invoking peripheral behavior",
-                log_strdup(binding->behavior_dev), log_strdup(payload.behavior_dev));
+                log_strdup(binding->behavior_dev), log_strdup(payload.behavior_msg.behavior_dev));
     }
 
     LOG_DBG("Sending behavior to dev \"%s\" event pos %d, state %d, param1 %d, param2 %d",
-            payload.behavior_dev, payload.data.position, payload.data.state, payload.data.param1,
-            payload.data.param2);
-    split_serial_sync_send((const uint8_t *)&payload, sizeof(payload));
+            payload.behavior_msg.behavior_dev, payload.behavior_msg.position,
+            payload.behavior_msg.state, payload.behavior_msg.param1, payload.behavior_msg.param2);
+    zmk_split_serial_send(&payload);
     return 0;
 }
+
+SYS_INIT(split_serial_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
