@@ -40,20 +40,20 @@ struct zmk_inter_kb_msg {
     };
 } __packed;
 
-typedef void (*zmk_split_serial_rx_callback_t)(const uint8_t *data, const int len);
+typedef void (*zmk_split_serial_rx_callback_t)(const struct zmk_inter_kb_msg *msg);
 
 /**
  * \brief Initializes the serial inter-split communication.
  * \param rx_callback A callback that is called from the ISR context whenever a packet has been
  *                    received. CRC is not validated beforehand.
  */
-int zmk_split_serial_sync_init(zmk_split_serial_rx_callback_t rx_callback);
+int zmk_split_serial_init(zmk_split_serial_rx_callback_t rx_callback);
 
 /**
  * \brief Sends the data through the serial transport
- * \param msg A pointer to the message to be sent.
+ * \param msg A pointer to the message to be sent. CRC is fixed before sending.
  */
-int zmk_split_serial_send(const struct zmk_inter_kb_msg *msg);
+int zmk_split_serial_send(struct zmk_inter_kb_msg *msg);
 
 /**
  * \brief Invoked by ZMK when a key is pressed

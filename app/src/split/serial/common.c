@@ -26,6 +26,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #define UART_NODE1 DT_CHOSEN(zmk_split_serial)
 #define MAX_COBS_MSG_LEN 256
+#define CRC_POLY 0xA001
+#define CRC_SEED 0xFFFF
 
 K_SEM_DEFINE(tx_done, 0, 1);
 
@@ -85,6 +87,50 @@ static int uart_handle_rxed_byte(line_data_t *const rx, cobs_state_t *const cobs
     return 0;
 }
 
+static void invoke_callback(const uart_data_t *const uart_data, const uint8_t *const data,
+                            int length) {
+    int msg_length = sizeof(enum zmk_kb_msg_type) + sizeof(uint16_t);
+
+    // validate and send rx-callback
+    if (length < msg_length) {
+        LOG_ERR("Discarding invalid header with length %d", length);
+        return;
+    }
+
+    const struct zmk_inter_kb_msg *msg = (const struct zmk_inter_kb_msg *)data;
+    uint16_t crc =
+        crc16_reflect(CRC_POLY, CRC_SEED, (const uint8_t *)&msg->type, sizeof(msg->type));
+
+    switch (msg->type) {
+    case ZmkKbMsgTypeBehavior:
+        msg_length += sizeof(struct zmk_behavior_split_msg);
+        crc = crc16_reflect(CRC_POLY, crc, (const uint8_t *)&msg->behavior_msg,
+                            sizeof(msg->behavior_msg));
+        break;
+    case ZmkKbMsgTypePositionState:
+        msg_length += sizeof(struct zmk_position_state_msg);
+        crc = crc16_reflect(CRC_POLY, crc, (const uint8_t *)&msg->position_state_msg,
+                            sizeof(msg->position_state_msg));
+        break;
+    default:
+        LOG_ERR("Received invalid message type: %d", msg->type);
+        return;
+    }
+
+    if (length != msg_length) {
+        LOG_ERR("Discarding message with length %d and type: %d", length, msg->type);
+        return;
+    }
+
+    // validate crc
+    if (crc != msg->crc) {
+        LOG_WRN("CRC mismatch (%x:%x)", crc, msg->crc);
+        return;
+    }
+
+    uart_data->rx_callback(msg);
+}
+
 static void uart_irq_callback_user_data(const struct device *const dev, void *const user_data) {
     uart_data_t *const data = (uart_data_t *)user_data;
     if (!uart_irq_update(dev)) {
@@ -128,7 +174,7 @@ static void uart_irq_callback_user_data(const struct device *const dev, void *co
         if (message_complete < 0) {
             LOG_WRN("Error parsing cobs message, dropping current progress");
         } else if (message_complete == 1) {
-            data->rx_callback(rx->ptr, rx->off);
+            invoke_callback(data, rx->ptr, rx->off);
             rx->off = 0;
         }
     }
@@ -178,7 +224,7 @@ static int encode_as_cobs_data(uint8_t *const cobs_buf, const int cobs_buf_len,
     return offset;
 }
 
-int zmk_split_serial_send(const struct zmk_inter_kb_msg *msg) {
+int zmk_split_serial_send(struct zmk_inter_kb_msg *msg) {
     if (!uart_data.ready) {
         LOG_WRN("Unable to send data! Uart not ready");
         return -EAGAIN;
@@ -189,6 +235,24 @@ int zmk_split_serial_send(const struct zmk_inter_kb_msg *msg) {
              "split_serial_sync_send was called from another thread.");
 
     // TODO(javier-varez): Calculate CRC and fix it
+    uint16_t crc =
+        crc16_reflect(CRC_POLY, CRC_SEED, (const uint8_t *)&msg->type, sizeof(msg->type));
+
+    switch (msg->type) {
+    case ZmkKbMsgTypeBehavior:
+        crc = crc16_reflect(CRC_POLY, crc, (const uint8_t *)&msg->behavior_msg,
+                            sizeof(msg->behavior_msg));
+        break;
+    case ZmkKbMsgTypePositionState:
+        crc = crc16_reflect(CRC_POLY, crc, (const uint8_t *)&msg->position_state_msg,
+                            sizeof(msg->position_state_msg));
+        break;
+    default:
+        LOG_ERR("cannot send invalid message type: %d", msg->type);
+        return -EINVAL;
+    }
+    msg->crc = crc;
+
     static uint8_t cobs_message[MAX_COBS_MSG_LEN];
 
     int encoded_length = encode_as_cobs_data(cobs_message, MAX_COBS_MSG_LEN, msg);
@@ -209,7 +273,7 @@ int zmk_split_serial_send(const struct zmk_inter_kb_msg *msg) {
     return 0;
 }
 
-int zmk_split_serial_sync_init(zmk_split_serial_rx_callback_t rx_callback) {
+int zmk_split_serial_init(zmk_split_serial_rx_callback_t rx_callback) {
     if (!device_is_ready(uart_data.serial_dev)) {
         LOG_ERR("UART device:%s not ready", uart_data.serial_dev->name);
         return -EAGAIN;

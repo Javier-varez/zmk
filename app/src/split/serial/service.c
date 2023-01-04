@@ -115,15 +115,9 @@ static void split_svc_run_behavior(struct k_work *work) {
 K_WORK_DEFINE(behavior_work, split_svc_run_behavior);
 
 // This runs on ISR context
-static void split_serial_rx_callback(const uint8_t *data, const int len) {
-    struct zmk_inter_kb_msg *inter_kb_data = (struct zmk_inter_kb_msg *)data;
-    if (len > sizeof(struct zmk_inter_kb_msg)) {
-        LOG_ERR("Exceeded maximum size for serial split message: %d", len);
-        return;
-    }
-
+static void split_serial_rx_callback(const struct zmk_inter_kb_msg *msg) {
     int retval = 0;
-    if ((retval = k_msgq_put(&inter_kbd_msgq, inter_kb_data, K_NO_WAIT)) < 0) {
+    if ((retval = k_msgq_put(&inter_kbd_msgq, msg, K_NO_WAIT)) < 0) {
         LOG_ERR("Unable to queue serial split message: %d", retval);
         return;
     }
@@ -143,7 +137,7 @@ static int split_serial_init() {
                        K_THREAD_STACK_SIZEOF(position_state_q_stack),
                        CONFIG_ZMK_SPLIT_SERIAL_THREAD_PRIORITY, NULL);
 
-    zmk_split_serial_sync_init(split_serial_rx_callback);
+    zmk_split_serial_init(split_serial_rx_callback);
     return 0;
 }
 

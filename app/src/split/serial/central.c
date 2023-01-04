@@ -32,19 +32,10 @@ static void split_central_notify_func(struct k_work *work) {
 
     static uint8_t position_state[ZMK_MAX_BITMAP_LEN];
     uint8_t changed_positions[ZMK_MAX_BITMAP_LEN];
-    uint16_t crc;
 
-    LOG_INF("[NOTIFICATION] type:%u CRC:%u", split_data.type, split_data.crc);
+    LOG_INF("[NOTIFICATION] type:%u", split_data.type);
     if (split_data.type != ZmkKbMsgTypePositionState) {
         return;
-    }
-
-    crc = crc16_ansi((uint8_t *)&split_data.position_state_msg,
-                     sizeof(split_data.position_state_msg));
-    if (crc != split_data.crc) {
-        LOG_WRN("CRC mismatch (%x:%x)", crc, split_data.crc);
-        /* LOG_WRN("CRC mismatch (%x:%x), skipping data", crc, split_data.crc); */
-        /* return; */
     }
 
     for (int i = 0; i < ZMK_MAX_BITMAP_LEN; i++) {
@@ -77,16 +68,9 @@ static void split_central_notify_func(struct k_work *work) {
 K_WORK_DEFINE(notify_work, split_central_notify_func);
 
 // This runs on ISR context
-static void split_serial_rx_callback(const uint8_t *const data, const int len) {
-    const struct zmk_inter_kb_msg *const inter_kb_data = (const struct zmk_inter_kb_msg *)data;
-
-    if (len > sizeof(struct zmk_inter_kb_msg)) {
-        LOG_ERR("Exceeded maximum size for serial split message: %d", len);
-        return;
-    }
-
+static void split_serial_rx_callback(const struct zmk_inter_kb_msg *msg) {
     int retval = 0;
-    if ((retval = k_msgq_put(&notify_event_msgq, inter_kb_data, K_NO_WAIT)) < 0) {
+    if ((retval = k_msgq_put(&notify_event_msgq, msg, K_NO_WAIT)) < 0) {
         LOG_ERR("Unable to queue serial split message: %d", retval);
         return;
     }
@@ -98,7 +82,7 @@ static void split_serial_rx_callback(const uint8_t *const data, const int len) {
 }
 
 static int split_serial_init() {
-    zmk_split_serial_sync_init(split_serial_rx_callback);
+    zmk_split_serial_init(split_serial_rx_callback);
     k_work_queue_start(&notify_work_q, notify_q_stack, K_THREAD_STACK_SIZEOF(notify_q_stack),
                        CONFIG_ZMK_SPLIT_SERIAL_THREAD_PRIORITY, NULL);
     return 0;
