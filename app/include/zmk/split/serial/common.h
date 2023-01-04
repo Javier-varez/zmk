@@ -54,13 +54,3 @@ int zmk_split_serial_init(zmk_split_serial_rx_callback_t rx_callback);
  * \param msg A pointer to the message to be sent. CRC is fixed before sending.
  */
 int zmk_split_serial_send(struct zmk_inter_kb_msg *msg);
-
-/**
- * \brief Invoked by ZMK when a key is pressed
- */
-int zmk_split_position_pressed(uint8_t position);
-
-/**
- * \brief Invoked by ZMK when a key is released
- */
-int zmk_split_position_released(uint8_t position);

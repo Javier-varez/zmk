@@ -19,9 +19,23 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/behavior.h>
 #include <zmk/matrix.h>
 #include <zmk/split/bluetooth/uuid.h>
-#include <zmk/split/bluetooth/service.h>
+#include <zmk/split/service.h>
 
 #define POS_STATE_LEN 16
+
+#define ZMK_SPLIT_RUN_BEHAVIOR_DEV_LEN 9
+
+struct zmk_split_run_behavior_data {
+    uint8_t position;
+    uint8_t state;
+    uint32_t param1;
+    uint32_t param2;
+} __packed;
+
+struct zmk_split_run_behavior_payload {
+    struct zmk_split_run_behavior_data data;
+    char behavior_dev[ZMK_SPLIT_RUN_BEHAVIOR_DEV_LEN];
+} __packed;
 
 static uint8_t num_of_positions = ZMK_KEYMAP_LEN;
 static uint8_t position_state[POS_STATE_LEN];
@@ -141,12 +155,12 @@ int send_position_state() {
     return 0;
 }
 
-int zmk_split_bt_position_pressed(uint8_t position) {
+int zmk_split_position_pressed(uint8_t position) {
     WRITE_BIT(position_state[position / 8], position % 8, true);
     return send_position_state();
 }
 
-int zmk_split_bt_position_released(uint8_t position) {
+int zmk_split_position_released(uint8_t position) {
     WRITE_BIT(position_state[position / 8], position % 8, false);
     return send_position_state();
 }
